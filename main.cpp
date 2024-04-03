@@ -26,7 +26,7 @@ void usage() {
 
 // https://stackoverflow.com/questions/17909401/linux-c-get-default-interfaces-ip-address
 bool get_s_ip(char* dev, char* ip) {
-    struct ifreq ifr;
+	struct ifreq ifr;
 	int s = socket(AF_INET, SOCK_DGRAM, 0);
 
 	strncpy(ifr.ifr_name, dev, IFNAMSIZ-1);
